@@ -1,0 +1,244 @@
+-- TimeBomb Duels | Rayfield UI
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local LP = Players.LocalPlayer
+
+local KEYWORDS = {"bomb", "bomba", "fuse", "tnt"}
+
+local F = {
+    ESP = false,
+    ESPAll = false,
+    ESPColor = Color3.fromRGB(255, 60, 60),
+    ESPNames = true,
+    Hitbox = false,
+    HitboxSize = 8,
+    AutoPass = false,
+    AutoFollow = false,
+    Range = 45,
+    PassRange = 12,
+    AntiAfk = true,
+}
+
+local boxes, hl, tags = {}, {}, {}
+
+local function hasBomb(plr)
+    local ch = plr.Character
+    if not ch or not ch:FindFirstChild("HumanoidRootPart") then return false end
+    for _, d in ipairs(ch:GetDescendants()) do
+        if d:IsA("Tool") then
+            local n = string.lower(d.Name)
+            for _, k in ipairs(KEYWORDS) do
+                if string.find(n, k) then return true end
+            end
+        end
+    end
+    for _, a in ipairs({"HasBomb", "hasBomb", "Bomb", "CarryingBomb"}) do
+        if plr:GetAttribute(a) or ch:GetAttribute(a) then return true end
+    end
+    return false
+end
+
+local function clearPlayer(plr)
+    if boxes[plr] then boxes[plr]:Destroy(); boxes[plr] = nil end
+    if hl[plr] then hl[plr]:Destroy(); hl[plr] = nil end
+    if tags[plr] then tags[plr]:Destroy(); tags[plr] = nil end
+end
+
+local function addBox(plr)
+    if plr == LP or boxes[plr] then return end
+    local ch = plr.Character
+    local root = ch and ch:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local b = Instance.new("Part")
+    b.Name = "TB_Hitbox"
+    b.Shape = Enum.PartType.Ball
+    b.Size = Vector3.new(F.HitboxSize, F.HitboxSize, F.HitboxSize)
+    b.Transparency = 1
+    b.CanCollide = false
+    b.Massless = true
+    b.CFrame = root.CFrame * CFrame.new(0, 1, 0)
+    b.Parent = ch
+    local w = Instance.new("Weld")
+    w.Part0, w.Part1, w.Parent = root, b, b
+    boxes[plr] = b
+end
+
+local function nearest(range)
+    local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local best, bestD
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                local d = (hrp.Position - root.Position).Magnitude
+                if d <= range and (not bestD or d < bestD) then best, bestD = p, d end
+            end
+        end
+    end
+    return best, bestD
+end
+
+local function firePrompts()
+    local ch = LP.Character
+    if not ch then return end
+    for _, d in ipairs(ch:GetDescendants()) do
+        if d:IsA("ProximityPrompt") and d.Enabled then
+            if fireproximityprompt then
+                pcall(fireproximityprompt, d)
+            else
+                pcall(function()
+                    d:InputHoldBegin()
+                    task.wait(d.HoldDuration)
+                    d:InputHoldEnd()
+                end)
+            end
+        end
+    end
+end
+
+-- UI
+local Window = Rayfield:CreateWindow({
+    Name = "TimeBomb Duels",
+    LoadingTitle = "TimeBomb Duels",
+    LoadingSubtitle = "utilidades",
+    Theme = "Ocean",
+    ConfigurationSaving = {Enabled = true, FolderName = "VeniceTBD", FileName = "config"},
+    KeySystem = false,
+})
+
+local Visual = Window:CreateTab("Visual", 4483362458)
+local Combat = Window:CreateTab("Bomba", 4483362458)
+local Misc = Window:CreateTab("Otros", 4483362458)
+
+Visual:CreateSection("ESP")
+Visual:CreateToggle({Name = "Resaltar portador de la bomba", CurrentValue = false, Flag = "esp", Callback = function(v) F.ESP = v end})
+Visual:CreateToggle({Name = "Resaltar a todos", CurrentValue = false, Flag = "espall", Callback = function(v) F.ESPAll = v end})
+Visual:CreateToggle({Name = "Mostrar nombre", CurrentValue = true, Flag = "espname", Callback = function(v) F.ESPNames = v end})
+Visual:CreateColorPicker({Name = "Color", Color = Color3.fromRGB(255, 60, 60), Flag = "espcolor", Callback = function(v) F.ESPColor = v end})
+
+Visual:CreateSection("Hitbox")
+Visual:CreateToggle({Name = "Agrandar hitbox", CurrentValue = false, Flag = "hb", Callback = function(v)
+    F.Hitbox = v
+    if not v then
+        for p, b in pairs(boxes) do if b then b:Destroy() end; boxes[p] = nil end
+    end
+end})
+Visual:CreateSlider({Name = "Tamaño", Range = {4, 20}, Increment = 1, Suffix = "studs", CurrentValue = 8, Flag = "hbsize", Callback = function(v)
+    F.HitboxSize = v
+    for _, b in pairs(boxes) do if b then b.Size = Vector3.new(v, v, v) end end
+end})
+
+Combat:CreateSection("Pase")
+Combat:CreateToggle({Name = "Auto pasar", CurrentValue = false, Flag = "pass", Callback = function(v) F.AutoPass = v end})
+Combat:CreateToggle({Name = "Auto seguir jugador", CurrentValue = false, Flag = "follow", Callback = function(v) F.AutoFollow = v end})
+Combat:CreateSlider({Name = "Rango de pase", Range = {5, 25}, Increment = 1, Suffix = "studs", CurrentValue = 12, Flag = "passrange", Callback = function(v) F.PassRange = v end})
+Combat:CreateSlider({Name = "Rango de seguimiento", Range = {10, 120}, Increment = 5, Suffix = "studs", CurrentValue = 45, Flag = "range", Callback = function(v) F.Range = v end})
+
+Misc:CreateSection("Servidor")
+Misc:CreateButton({Name = "Teleport al portador", Callback = function()
+    local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and hasBomb(p) then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                root.CFrame = hrp.CFrame * CFrame.new(0, 0, 3)
+                Rayfield:Notify({Title = "Teleport", Content = p.Name, Duration = 3, Image = 4483362458})
+            end
+            return
+        end
+    end
+    Rayfield:Notify({Title = "Teleport", Content = "Nadie lleva la bomba", Duration = 3, Image = 4483362458})
+end})
+Misc:CreateButton({Name = "Rejoin", Callback = function()
+    game:GetService("TeleportService"):Teleport(game.PlaceId, LP)
+end})
+Misc:CreateToggle({Name = "Anti-AFK", CurrentValue = true, Flag = "afk", Callback = function(v) F.AntiAfk = v end})
+
+-- Loop principal
+RunService.Heartbeat:Connect(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if F.Hitbox then addBox(p) end
+
+        local ch = p.Character
+        local carrying = ch and hasBomb(p)
+        local show = F.ESPAll or (F.ESP and carrying)
+
+        if show and ch and p ~= LP then
+            if not hl[p] or hl[p].Parent ~= ch then
+                if hl[p] then hl[p]:Destroy() end
+                local h = Instance.new("Highlight")
+                h.FillColor = F.ESPColor
+                h.OutlineColor = Color3.new(1, 1, 1)
+                h.FillTransparency = 0.45
+                h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                h.Parent = ch
+                hl[p] = h
+            else
+                hl[p].FillColor = F.ESPColor
+            end
+
+            if F.ESPNames and ch:FindFirstChild("Head") then
+                if not tags[p] or tags[p].Adornee ~= ch:FindFirstChild("Head") then
+                    if tags[p] then tags[p]:Destroy() end
+                    local bb = Instance.new("BillboardGui")
+                    bb.Size = UDim2.fromScale(4, 0.8)
+                    bb.StudsOffset = Vector3.new(0, 2.6, 0)
+                    bb.AlwaysOnTop = true
+                    bb.Adornee = ch:FindFirstChild("Head")
+                    bb.Parent = ch:FindFirstChild("Head")
+                    local tl = Instance.new("TextLabel")
+                    tl.Size = UDim2.fromScale(1, 1)
+                    tl.BackgroundTransparency = 1
+                    tl.Text = p.Name
+                    tl.TextColor3 = F.ESPColor
+                    tl.TextStrokeTransparency = 0.3
+                    tl.TextScaled = true
+                    tl.Font = Enum.Font.GothamBold
+                    tl.Parent = bb
+                    tags[p] = bb
+                else
+                    local tl = tags[p]:FindFirstChildOfClass("TextLabel")
+                    if tl then tl.TextColor3 = F.ESPColor end
+                end
+            elseif tags[p] then
+                tags[p]:Destroy(); tags[p] = nil
+            end
+        else
+            clearPlayer(p)
+        end
+    end
+
+    if hasBomb(LP) then
+        local target, dist = nearest(F.Range)
+        if target and target.Character then
+            local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+            if F.AutoFollow and hum and dist > 4 then
+                hum:MoveTo(target.Character.HumanoidRootPart.Position)
+            end
+            if F.AutoPass and dist <= F.PassRange then
+                firePrompts()
+            end
+        end
+    end
+end)
+
+-- Anti-AFK
+LP.Idled:Connect(function()
+    if F.AntiAfk then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end)
+
+Players.PlayerRemoving:Connect(clearPlayer)
+LP.CharacterRemoving:Connect(function()
+    for p in pairs(boxes) do boxes[p] = nil end
+end)
+
+Rayfield:Notify({Title = "Cargado", Content = "Menú listo", Duration = 4, Image = 4483362458})
